@@ -1,5 +1,9 @@
 from typing import List, Literal
+import json
+import os
 
+from dotenv import load_dotenv
+from openai import OpenAI
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -12,6 +16,18 @@ WEIGHTS = {
     "long_term_growth": 0.20,
 }
 
+load_dotenv()
+
+groq_api_key = os.getenv("GROQ_API_KEY")
+client = (
+    OpenAI(
+        api_key=groq_api_key,
+        base_url="https://api.groq.com/openai/v1",
+    )
+    if groq_api_key
+    else None
+)
+
 app = FastAPI(title="MindMap API")
 
 app.add_middleware(
@@ -21,23 +37,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-def compute_weighted_score(
-    well_being: int,
-    ethics: int,
-    impact_on_others: int,
-    practicality: int,
-    long_term_growth: int,
-) -> int:
-    weighted = (
-        well_being * WEIGHTS["well_being"]
-        + ethics * WEIGHTS["ethics"]
-        + impact_on_others * WEIGHTS["impact_on_others"]
-        + practicality * WEIGHTS["practicality"]
-        + long_term_growth * WEIGHTS["long_term_growth"]
-    )
-    return round(weighted * 5)
 
 
 class AnalyzeRequest(BaseModel):
@@ -72,6 +71,198 @@ class AnalyzeResponse(BaseModel):
     options: List[OptionScore]
 
 
+def compute_weighted_score(
+    well_being: int,
+    ethics: int,
+    impact_on_others: int,
+    practicality: int,
+    long_term_growth: int,
+) -> int:
+    weighted = (
+        well_being * WEIGHTS["well_being"]
+        + ethics * WEIGHTS["ethics"]
+        + impact_on_others * WEIGHTS["impact_on_others"]
+        + practicality * WEIGHTS["practicality"]
+        + long_term_growth * WEIGHTS["long_term_growth"]
+    )
+    return round(weighted * 5)
+
+
+def fallback_options(payload: AnalyzeRequest) -> dict:
+    category = payload.category.lower().strip()
+
+    if category == "career":
+        return {
+            "options": [
+                {
+                    "name": "Negotiate timing or scope",
+                    "description": "Ask for adjusted timing, reduced hours, or a delayed start to protect your workload.",
+                    "rationale": "This keeps the opportunity while reducing the risk of burnout.",
+                    "tradeoff": "You may need to delay immediate progress or accept a modified role.",
+                },
+                {
+                    "name": "Accept with a support plan",
+                    "description": "Take the opportunity, but build a concrete study and stress-management plan first.",
+                    "rationale": "This preserves momentum while adding structure.",
+                    "tradeoff": "Your stress level may still rise if your schedule becomes too tight.",
+                },
+                {
+                    "name": "Decline for now",
+                    "description": "Protect your academic stability and revisit similar opportunities later.",
+                    "rationale": "This reduces immediate overload and protects short-term well-being.",
+                    "tradeoff": "You may miss near-term career experience.",
+                },
+            ],
+            "overall_rationale": "The most balanced path is usually the one that protects long-term stability without making a rushed sacrifice.",
+            "suggested_next_step": "List your fixed weekly obligations and estimate whether this decision realistically fits your time and energy.",
+        }
+
+    if category == "academic":
+        return {
+            "options": [
+                {
+                    "name": "Ask for support first",
+                    "description": "Talk to a professor, advisor, or mentor before making the final choice.",
+                    "rationale": "Outside perspective can reduce isolation and improve decision quality.",
+                    "tradeoff": "It may feel slower than acting immediately.",
+                },
+                {
+                    "name": "Reduce commitments",
+                    "description": "Scale back one obligation to create space for focus and recovery.",
+                    "rationale": "Protecting bandwidth can improve academic performance and mental health.",
+                    "tradeoff": "You may need to disappoint someone or delay another goal.",
+                },
+                {
+                    "name": "Push through temporarily",
+                    "description": "Stay with your current workload for now, but monitor stress closely.",
+                    "rationale": "This preserves short-term continuity if the pressure is temporary.",
+                    "tradeoff": "It increases burnout risk if the situation continues.",
+                },
+            ],
+            "overall_rationale": "Academic decisions are often strongest when they reduce overwhelm and create room for support.",
+            "suggested_next_step": "Write a short message to one trusted person explaining the pressure you’re under and what decision you’re weighing.",
+        }
+
+    return {
+        "options": [
+            {
+                "name": "Pause and reflect",
+                "description": "Take a short step back and review the situation from multiple perspectives.",
+                "rationale": "A pause often reveals tradeoffs you miss while stressed.",
+                "tradeoff": "It may feel uncomfortable to delay action.",
+            },
+            {
+                "name": "Consult a trusted person",
+                "description": "Bring in an outside perspective before deciding.",
+                "rationale": "Another person can surface ethical or practical impacts you overlooked.",
+                "tradeoff": "Their perspective may complicate the decision at first.",
+            },
+            {
+                "name": "Take a limited first step",
+                "description": "Choose a small reversible action instead of a full commitment.",
+                "rationale": "This lowers risk while still moving forward.",
+                "tradeoff": "It may not resolve the full dilemma immediately.",
+            },
+        ],
+        "overall_rationale": "The best-balanced decisions usually come from reducing reactivity and increasing perspective.",
+        "suggested_next_step": "Write down your top two choices and one likely short-term and long-term outcome for each.",
+    }
+
+
+def generate_llm_options(payload: AnalyzeRequest) -> dict:
+    if not client:
+        return fallback_options(payload)
+
+    prompt = f"""
+You are generating thoughtful decision-support options for a college student.
+
+Return ONLY valid JSON.
+Do not include markdown.
+Do not include explanation outside the JSON.
+
+User dilemma:
+- dilemma: {payload.dilemma}
+- category: {payload.category}
+- urgency: {payload.urgency}/10
+- emotion: {payload.emotion}
+- stakeholders: {payload.stakeholders}
+- goal: {payload.goal}
+
+Rules:
+- Be balanced, not extreme
+- Consider emotional well-being, ethics, impact on others, practicality, and long-term growth
+- Do not give legal, medical, or crisis advice
+- Return exactly 3 realistic options
+- Keep the response practical and supportive
+
+Return exactly this JSON shape:
+{{
+  "options": [
+    {{
+      "name": "short option title",
+      "description": "1-2 sentence explanation",
+      "rationale": "why this option may help",
+      "tradeoff": "main downside or tradeoff"
+    }},
+    {{
+      "name": "short option title",
+      "description": "1-2 sentence explanation",
+      "rationale": "why this option may help",
+      "tradeoff": "main downside or tradeoff"
+    }},
+    {{
+      "name": "short option title",
+      "description": "1-2 sentence explanation",
+      "rationale": "why this option may help",
+      "tradeoff": "main downside or tradeoff"
+    }}
+  ],
+  "overall_rationale": "brief summary",
+  "suggested_next_step": "one practical next step"
+}}
+"""
+
+    try:
+        response = client.responses.create(
+            model="openai/gpt-oss-20b",
+            input=prompt,
+        )
+
+        parsed = json.loads(response.output_text)
+
+        if (
+            "options" not in parsed
+            or "overall_rationale" not in parsed
+            or "suggested_next_step" not in parsed
+            or not isinstance(parsed["options"], list)
+            or len(parsed["options"]) != 3
+        ):
+            return fallback_options(payload)
+
+        return parsed
+
+    except Exception:
+        return fallback_options(payload)
+
+
+def heuristic_scores(payload: AnalyzeRequest, index: int) -> tuple[int, int, int, int, int]:
+    urgency_penalty = 1 if payload.urgency >= 8 else 0
+    emotion_text = payload.emotion.lower()
+
+    stress_heavy = any(word in emotion_text for word in ["anxious", "overwhelmed", "stressed", "burnout", "burned out"])
+
+    well_being = max(6, 9 - urgency_penalty - index)
+    if stress_heavy:
+        well_being = max(5, well_being - 1)
+
+    ethics = 8
+    impact_on_others = 8
+    practicality = 8 if payload.category.lower().strip() in ["academic", "career"] else 7
+    long_term_growth = max(6, 9 - index)
+
+    return well_being, ethics, impact_on_others, practicality, long_term_growth
+
+
 @app.get("/")
 def root():
     return {"message": "MindMap API is running"}
@@ -90,143 +281,47 @@ def analyze_decision(payload: AnalyzeRequest):
     elif payload.urgency >= 4:
         urgency_level = "Moderate"
 
-    category = payload.category.lower().strip()
+    llm_data = generate_llm_options(payload)
+    raw_options = llm_data["options"]
 
-    if category == "career":
-        options = [
+    scored_options: List[OptionScore] = []
+
+    for index, item in enumerate(raw_options):
+        well_being, ethics, impact_on_others, practicality, long_term_growth = heuristic_scores(payload, index)
+
+        scored_options.append(
             OptionScore(
-                name="Accept immediately",
-                description="Take the opportunity now and adapt your schedule around it.",
-                well_being=5,
-                ethics=8,
-                impact_on_others=7,
-                practicality=8,
-                long_term_growth=9,
-                total_score=compute_weighted_score(5, 8, 7, 8, 9),
-            ),
-            OptionScore(
-                name="Negotiate timing or scope",
-                description="Ask for adjusted timing, reduced hours, or a delayed start to protect your workload.",
-                well_being=9,
-                ethics=9,
-                impact_on_others=8,
-                practicality=8,
-                long_term_growth=9,
-                total_score=compute_weighted_score(9, 9, 8, 8, 9),
-            ),
-            OptionScore(
-                name="Decline for now",
-                description="Protect your academic stability and revisit similar opportunities later.",
-                well_being=8,
-                ethics=8,
-                impact_on_others=6,
-                practicality=7,
-                long_term_growth=6,
-                total_score=compute_weighted_score(8, 8, 6, 7, 6),
-            ),
-        ]
-        ranked_options = sorted(options, key=lambda o: o.total_score, reverse=True)
-        key_risk = "Overcommitment may increase stress and reduce academic performance."
-        best_option = ranked_options[0].name
-        second_best_option = ranked_options[1].name
-        biggest_tradeoff = "You may preserve your well-being, but risk delaying immediate experience."
-        rationale = (
-            "The strongest path balances opportunity with sustainability. "
-            "A negotiated option protects mental health while preserving long-term career value."
-        )
-        next_step = (
-            "Draft a short message asking whether the start date, hours, or responsibilities can be adjusted."
+                name=item["name"],
+                description=item["description"],
+                well_being=well_being,
+                ethics=ethics,
+                impact_on_others=impact_on_others,
+                practicality=practicality,
+                long_term_growth=long_term_growth,
+                total_score=compute_weighted_score(
+                    well_being,
+                    ethics,
+                    impact_on_others,
+                    practicality,
+                    long_term_growth,
+                ),
+            )
         )
 
-    elif category == "academic":
-        options = [
-            OptionScore(
-                name="Push through as planned",
-                description="Continue with the current workload and try to manage through pressure.",
-                well_being=4,
-                ethics=8,
-                impact_on_others=7,
-                practicality=7,
-                long_term_growth=7,
-                total_score=compute_weighted_score(4, 8, 7, 7, 7),
-            ),
-            OptionScore(
-                name="Reduce commitments",
-                description="Scale back one obligation to create space for focus and recovery.",
-                well_being=9,
-                ethics=9,
-                impact_on_others=8,
-                practicality=8,
-                long_term_growth=8,
-                total_score=compute_weighted_score(9, 9, 8, 8, 8),
-            ),
-            OptionScore(
-                name="Ask for support first",
-                description="Talk to a professor, advisor, or mentor before making the final choice.",
-                well_being=8,
-                ethics=9,
-                impact_on_others=9,
-                practicality=9,
-                long_term_growth=8,
-                total_score=compute_weighted_score(8, 9, 9, 9, 8),
-            ),
-        ]
-        ranked_options = sorted(options, key=lambda o: o.total_score, reverse=True)
-        key_risk = "Stress accumulation may lead to burnout or reduced performance."
-        best_option = ranked_options[0].name
-        second_best_option = ranked_options[1].name
-        biggest_tradeoff = "Taking a pause to seek help may feel slower, but often improves the final decision."
-        rationale = (
-            "Getting perspective before acting reduces isolation and often leads to more responsible, informed decisions."
-        )
-        next_step = (
-            "Identify one person you trust and prepare a 2–3 sentence summary of your situation to share with them."
-        )
+    ranked_options = sorted(scored_options, key=lambda o: o.total_score, reverse=True)
 
-    else:
-        options = [
-            OptionScore(
-                name="Act quickly",
-                description="Resolve the issue fast to reduce immediate uncertainty.",
-                well_being=5,
-                ethics=7,
-                impact_on_others=6,
-                practicality=8,
-                long_term_growth=6,
-                total_score=compute_weighted_score(5, 7, 6, 8, 6),
-            ),
-            OptionScore(
-                name="Pause and reflect",
-                description="Take a short step back and review the situation from multiple perspectives.",
-                well_being=9,
-                ethics=9,
-                impact_on_others=8,
-                practicality=8,
-                long_term_growth=8,
-                total_score=compute_weighted_score(9, 9, 8, 8, 8),
-            ),
-            OptionScore(
-                name="Consult a trusted person",
-                description="Bring in an outside perspective before deciding.",
-                well_being=8,
-                ethics=9,
-                impact_on_others=9,
-                practicality=8,
-                long_term_growth=8,
-                total_score=compute_weighted_score(8, 9, 9, 8, 8),
-            ),
-        ]
-        ranked_options = sorted(options, key=lambda o: o.total_score, reverse=True)
-        key_risk = "Reacting from stress may hide better long-term options."
-        best_option = ranked_options[0].name
-        second_best_option = ranked_options[1].name
-        biggest_tradeoff = "Slowing down may feel uncomfortable, but it often improves decision quality."
-        rationale = (
-            "The most balanced path is usually the one that reduces reactive decision-making and introduces perspective."
-        )
-        next_step = (
-            "Write down the top 2 choices you are considering and one likely consequence for each."
-        )
+    best_option = ranked_options[0].name
+    second_best_option = ranked_options[1].name
+    best_tradeoff = ""
+    for item in raw_options:
+        if item["name"] == best_option:
+            best_tradeoff = item["tradeoff"]
+            break
+
+    biggest_tradeoff = best_tradeoff or raw_options[0]["tradeoff"]
+    key_risk = "High-emotion or rushed choices can hide better long-term paths."
+    rationale = llm_data["overall_rationale"]
+    next_step = llm_data["suggested_next_step"]
 
     return AnalyzeResponse(
         detected_type=payload.category,
