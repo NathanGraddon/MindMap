@@ -12,7 +12,7 @@ export default function Home() {
           </h1>
 
           <p className="mt-4 max-w-3xl text-lg text-zinc-300">
-            A structured decision-support platform for college students navigating
+            A structured decision-support platform for college students and early-career usersnavigating
             difficult academic, personal, and career choices.
           </p>
         </header>
