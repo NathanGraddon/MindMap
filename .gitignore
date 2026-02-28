@@ -1,0 +1,18 @@
+# OS / editor
+.DS_Store
+.vscode/
+
+# Logs
+*.log
+
+# Root env files
+.env
+.env.local
+
+# Python / backend
+backend/.venv/
+backend/__pycache__/
+backend/*.py[cod]
+
+# Shared / misc build artifacts
+dist/
