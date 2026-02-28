@@ -4,6 +4,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+WEIGHTS = {
+    "well_being": 0.30,
+    "ethics": 0.20,
+    "impact_on_others": 0.15,
+    "practicality": 0.15,
+    "long_term_growth": 0.20,
+}
 
 app = FastAPI(title="MindMap API")
 
@@ -14,6 +21,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def compute_weighted_score(
+    well_being: int,
+    ethics: int,
+    impact_on_others: int,
+    practicality: int,
+    long_term_growth: int,
+) -> int:
+    weighted = (
+        well_being * WEIGHTS["well_being"]
+        + ethics * WEIGHTS["ethics"]
+        + impact_on_others * WEIGHTS["impact_on_others"]
+        + practicality * WEIGHTS["practicality"]
+        + long_term_growth * WEIGHTS["long_term_growth"]
+    )
+    return round(weighted * 5)
 
 
 class AnalyzeRequest(BaseModel):
@@ -78,7 +102,7 @@ def analyze_decision(payload: AnalyzeRequest):
                 impact_on_others=7,
                 practicality=8,
                 long_term_growth=9,
-                total_score=37,
+                total_score=compute_weighted_score(5, 8, 7, 8, 9),
             ),
             OptionScore(
                 name="Negotiate timing or scope",
@@ -88,7 +112,7 @@ def analyze_decision(payload: AnalyzeRequest):
                 impact_on_others=8,
                 practicality=8,
                 long_term_growth=9,
-                total_score=43,
+                total_score=compute_weighted_score(9, 9, 8, 8, 9),
             ),
             OptionScore(
                 name="Decline for now",
@@ -98,12 +122,13 @@ def analyze_decision(payload: AnalyzeRequest):
                 impact_on_others=6,
                 practicality=7,
                 long_term_growth=6,
-                total_score=35,
+                total_score=compute_weighted_score(8, 8, 6, 7, 6),
             ),
         ]
+        ranked_options = sorted(options, key=lambda o: o.total_score, reverse=True)
         key_risk = "Overcommitment may increase stress and reduce academic performance."
-        best_option = "Negotiate timing or scope"
-        second_best_option = "Accept immediately"
+        best_option = ranked_options[0].name
+        second_best_option = ranked_options[1].name
         biggest_tradeoff = "You may preserve your well-being, but risk delaying immediate experience."
         rationale = (
             "The strongest path balances opportunity with sustainability. "
@@ -112,6 +137,7 @@ def analyze_decision(payload: AnalyzeRequest):
         next_step = (
             "Draft a short message asking whether the start date, hours, or responsibilities can be adjusted."
         )
+
     elif category == "academic":
         options = [
             OptionScore(
@@ -122,7 +148,7 @@ def analyze_decision(payload: AnalyzeRequest):
                 impact_on_others=7,
                 practicality=7,
                 long_term_growth=7,
-                total_score=33,
+                total_score=compute_weighted_score(4, 8, 7, 7, 7),
             ),
             OptionScore(
                 name="Reduce commitments",
@@ -132,7 +158,7 @@ def analyze_decision(payload: AnalyzeRequest):
                 impact_on_others=8,
                 practicality=8,
                 long_term_growth=8,
-                total_score=42,
+                total_score=compute_weighted_score(9, 9, 8, 8, 8),
             ),
             OptionScore(
                 name="Ask for support first",
@@ -142,12 +168,13 @@ def analyze_decision(payload: AnalyzeRequest):
                 impact_on_others=9,
                 practicality=9,
                 long_term_growth=8,
-                total_score=43,
+                total_score=compute_weighted_score(8, 9, 9, 9, 8),
             ),
         ]
+        ranked_options = sorted(options, key=lambda o: o.total_score, reverse=True)
         key_risk = "Stress accumulation may lead to burnout or reduced performance."
-        best_option = "Ask for support first"
-        second_best_option = "Reduce commitments"
+        best_option = ranked_options[0].name
+        second_best_option = ranked_options[1].name
         biggest_tradeoff = "Taking a pause to seek help may feel slower, but often improves the final decision."
         rationale = (
             "Getting perspective before acting reduces isolation and often leads to more responsible, informed decisions."
@@ -155,6 +182,7 @@ def analyze_decision(payload: AnalyzeRequest):
         next_step = (
             "Identify one person you trust and prepare a 2–3 sentence summary of your situation to share with them."
         )
+
     else:
         options = [
             OptionScore(
@@ -165,7 +193,7 @@ def analyze_decision(payload: AnalyzeRequest):
                 impact_on_others=6,
                 practicality=8,
                 long_term_growth=6,
-                total_score=32,
+                total_score=compute_weighted_score(5, 7, 6, 8, 6),
             ),
             OptionScore(
                 name="Pause and reflect",
@@ -175,7 +203,7 @@ def analyze_decision(payload: AnalyzeRequest):
                 impact_on_others=8,
                 practicality=8,
                 long_term_growth=8,
-                total_score=42,
+                total_score=compute_weighted_score(9, 9, 8, 8, 8),
             ),
             OptionScore(
                 name="Consult a trusted person",
@@ -185,12 +213,13 @@ def analyze_decision(payload: AnalyzeRequest):
                 impact_on_others=9,
                 practicality=8,
                 long_term_growth=8,
-                total_score=42,
+                total_score=compute_weighted_score(8, 9, 9, 8, 8),
             ),
         ]
+        ranked_options = sorted(options, key=lambda o: o.total_score, reverse=True)
         key_risk = "Reacting from stress may hide better long-term options."
-        best_option = "Pause and reflect"
-        second_best_option = "Consult a trusted person"
+        best_option = ranked_options[0].name
+        second_best_option = ranked_options[1].name
         biggest_tradeoff = "Slowing down may feel uncomfortable, but it often improves decision quality."
         rationale = (
             "The most balanced path is usually the one that reduces reactive decision-making and introduces perspective."
@@ -208,5 +237,5 @@ def analyze_decision(payload: AnalyzeRequest):
         biggest_tradeoff=biggest_tradeoff,
         rationale=rationale,
         next_step=next_step,
-        options=options,
+        options=ranked_options,
     )
