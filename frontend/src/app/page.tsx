@@ -11,6 +11,29 @@ type FormState = {
   goal: string
 }
 
+type OptionScore = {
+  name: string
+  description: string
+  well_being: number
+  ethics: number
+  impact_on_others: number
+  practicality: number
+  long_term_growth: number
+  total_score: number
+}
+
+type AnalysisResult = {
+  detected_type: string
+  urgency_level: 'Low' | 'Moderate' | 'High'
+  key_risk: string
+  best_option: string
+  second_best_option: string
+  biggest_tradeoff: string
+  rationale: string
+  next_step: string
+  options: OptionScore[]
+}
+
 const initialState: FormState = {
   dilemma: '',
   category: 'academic',
@@ -24,6 +47,9 @@ export default function Home() {
   const [started, setStarted] = useState(false)
   const [step, setStep] = useState(1)
   const [form, setForm] = useState<FormState>(initialState)
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const canContinueStep1 = form.dilemma.trim().length > 10
   const canContinueStep2 =
@@ -33,11 +59,7 @@ export default function Home() {
   const summary = useMemo(() => {
     return {
       urgencyLabel:
-        form.urgency <= 3
-          ? 'Low'
-          : form.urgency <= 7
-            ? 'Moderate'
-            : 'High',
+        form.urgency <= 3 ? 'Low' : form.urgency <= 7 ? 'Moderate' : 'High',
     }
   }, [form.urgency])
 
@@ -49,11 +71,42 @@ export default function Home() {
     setStarted(false)
     setStep(1)
     setForm(initialState)
+    setAnalysis(null)
+    setLoading(false)
+    setError('')
+  }
+
+  async function generateDecisionMap() {
+    setLoading(true)
+    setError('')
+    setAnalysis(null)
+
+    try {
+      const response = await fetch('http://127.0.0.1:8000/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(form),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to analyze decision.')
+      }
+
+      const data: AnalysisResult = await response.json()
+      setAnalysis(data)
+    } catch (err) {
+      console.error(err)
+      setError('Something went wrong while generating the decision map.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
     <main className="min-h-screen px-6 py-10 md:px-12">
-      <div className="mx-auto max-w-5xl">
+      <div className="mx-auto max-w-6xl">
         <header className="mb-10">
           <p className="mb-3 text-sm uppercase tracking-[0.25em] text-zinc-400">
             Wellness-Centered Decision Support
@@ -120,8 +173,8 @@ export default function Home() {
             </p>
           </section>
         ) : (
-          <section className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
-            <div className="neon-card p-6 md:p-8">
+          <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+            <section className="neon-card p-6 md:p-8">
               <div className="mb-6 flex items-center justify-between">
                 <div>
                   <p className="text-sm uppercase tracking-[0.2em] text-zinc-500">
@@ -230,14 +283,8 @@ export default function Home() {
 
                   <div className="rounded-2xl border border-zinc-800 bg-black/30 p-4">
                     <p className="text-sm text-zinc-400">
-                      Next, we’ll send this to the backend and generate:
+                      Generate a first-pass decision map with mock scoring and structured recommendations.
                     </p>
-                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                      <li>• 3 realistic options</li>
-                      <li>• multi-lens scoring</li>
-                      <li>• tradeoff analysis</li>
-                      <li>• a best-balanced recommendation</li>
-                    </ul>
                   </div>
                 </div>
               )}
@@ -267,10 +314,11 @@ export default function Home() {
 
                 {step === 3 && (
                   <button
-                    disabled={!canContinueStep3}
+                    onClick={generateDecisionMap}
+                    disabled={!canContinueStep3 || loading}
                     className="rounded-2xl border border-lime-400/30 bg-lime-300/5 px-5 py-3 font-medium text-lime-300 transition hover:bg-lime-300/10 disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    Generate Decision Map
+                    {loading ? 'Generating...' : 'Generate Decision Map'}
                   </button>
                 )}
 
@@ -281,55 +329,134 @@ export default function Home() {
                   Reset
                 </button>
               </div>
-            </div>
 
-            <aside className="neon-card p-6">
-              <p className="text-sm uppercase tracking-[0.2em] text-zinc-500">
-                Live Snapshot
-              </p>
-              <h3 className="mt-2 text-xl font-semibold">Current context</h3>
-
-              <div className="mt-5 space-y-4 text-sm">
-                <div>
-                  <p className="text-zinc-500">Category</p>
-                  <p className="text-zinc-200">{form.category || '—'}</p>
+              {error && (
+                <div className="mt-6 rounded-2xl border border-red-400/20 bg-red-500/5 p-4 text-sm text-red-300">
+                  {error}
                 </div>
+              )}
+            </section>
 
-                <div>
-                  <p className="text-zinc-500">Urgency</p>
-                  <p className="text-zinc-200">
-                    {form.urgency}/10 ({summary.urgencyLabel})
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-zinc-500">Emotion</p>
-                  <p className="text-zinc-200">{form.emotion || '—'}</p>
-                </div>
-
-                <div>
-                  <p className="text-zinc-500">Stakeholders</p>
-                  <p className="text-zinc-200 whitespace-pre-wrap">
-                    {form.stakeholders || '—'}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-zinc-500">Desired outcome</p>
-                  <p className="text-zinc-200 whitespace-pre-wrap">
-                    {form.goal || '—'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-6 rounded-2xl border border-zinc-800 bg-black/30 p-4">
-                <p className="text-xs leading-6 text-zinc-500">
-                  MindMap provides structured guidance, not legal, medical, or crisis
-                  intervention advice.
+            <aside className="space-y-6">
+              <section className="neon-card p-6">
+                <p className="text-sm uppercase tracking-[0.2em] text-zinc-500">
+                  Live Snapshot
                 </p>
-              </div>
+                <h3 className="mt-2 text-xl font-semibold">Current context</h3>
+
+                <div className="mt-5 space-y-4 text-sm">
+                  <div>
+                    <p className="text-zinc-500">Category</p>
+                    <p className="text-zinc-200">{form.category || '—'}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-zinc-500">Urgency</p>
+                    <p className="text-zinc-200">
+                      {form.urgency}/10 ({summary.urgencyLabel})
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-zinc-500">Emotion</p>
+                    <p className="text-zinc-200">{form.emotion || '—'}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-zinc-500">Stakeholders</p>
+                    <p className="whitespace-pre-wrap text-zinc-200">
+                      {form.stakeholders || '—'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-zinc-500">Desired outcome</p>
+                    <p className="whitespace-pre-wrap text-zinc-200">
+                      {form.goal || '—'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-2xl border border-zinc-800 bg-black/30 p-4">
+                  <p className="text-xs leading-6 text-zinc-500">
+                    MindMap provides structured guidance, not legal, medical, or crisis
+                    intervention advice.
+                  </p>
+                </div>
+              </section>
+
+              <section className="neon-card p-6">
+                <p className="text-sm uppercase tracking-[0.2em] text-zinc-500">
+                  Decision Output
+                </p>
+                <h3 className="mt-2 text-xl font-semibold">Analysis result</h3>
+
+                {!analysis ? (
+                  <p className="mt-4 text-sm text-zinc-400">
+                    Your generated recommendation will appear here after you complete the intake flow.
+                  </p>
+                ) : (
+                  <div className="mt-5 space-y-5">
+                    <div>
+                      <p className="text-zinc-500">Best-balanced option</p>
+                      <p className="text-lg font-semibold text-lime-300">
+                        {analysis.best_option}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-zinc-500">Second-best option</p>
+                      <p className="text-zinc-200">{analysis.second_best_option}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-zinc-500">Key risk</p>
+                      <p className="text-zinc-200">{analysis.key_risk}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-zinc-500">Biggest tradeoff</p>
+                      <p className="text-zinc-200">{analysis.biggest_tradeoff}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-zinc-500">Rationale</p>
+                      <p className="text-zinc-200">{analysis.rationale}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-zinc-500">Suggested next step</p>
+                      <p className="text-zinc-200">{analysis.next_step}</p>
+                    </div>
+
+                    <div className="border-t border-zinc-800 pt-4">
+                      <p className="mb-3 text-zinc-400">Options considered</p>
+                      <div className="space-y-3">
+                        {analysis.options.map((option) => (
+                          <div
+                            key={option.name}
+                            className="rounded-2xl border border-zinc-800 bg-black/30 p-4"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-medium text-white">{option.name}</p>
+                                <p className="mt-1 text-sm text-zinc-400">
+                                  {option.description}
+                                </p>
+                              </div>
+                              <div className="rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-sm text-blue-300">
+                                {option.total_score}/50
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </section>
             </aside>
-          </section>
+          </div>
         )}
       </div>
     </main>
