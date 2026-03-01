@@ -25,7 +25,7 @@ export default function ContactPage() {
         </h1>
         <p className="text-neutral-400 max-w-3xl mx-auto leading-relaxed">
           We built MindMap to support mental well-being to make the hard decisions 
-          just a little easier
+          just a little easier!
         </p>
         <p className="text-neutral-500 max-w-3xl mx-auto mt-4 leading-relaxed">
           We both conduct research and programming at the{" "}
