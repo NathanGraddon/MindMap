@@ -1,6 +1,7 @@
 'use client'
+import { supabase } from "@/app/lib/supabaseClient";
+import { useEffect, useMemo, useState } from 'react'
 
-import { useMemo, useState } from 'react'
 
 type FormState = {
   dilemma: string
@@ -44,12 +45,42 @@ const initialState: FormState = {
 }
 
 export default function Home() {
+  const [username, setUsername] = useState<string | null>(null)
   const [started, setStarted] = useState(false)
   const [step, setStep] = useState(1)
   const [form, setForm] = useState<FormState>(initialState)
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    async function loadUsername() {
+      const { data } = await supabase.auth.getUser()
+      const user = data.user
+      if (!user) {
+        setUsername(null)
+        return
+      }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("id", user.id)
+        .single()
+
+      setUsername(profile?.username ?? null)
+    }
+
+    loadUsername()
+
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      loadUsername()
+    })
+
+    return () => {
+      sub.subscription.unsubscribe()
+    }
+  }, [])
 
   const canContinueStep1 = form.dilemma.trim().length > 10
   const canContinueStep2 =
@@ -95,6 +126,20 @@ export default function Home() {
       }
 
       const data: AnalysisResult = await response.json()
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+    
+      if (user) {
+        await supabase.from("decision_history").insert({
+          user_id: user.id,
+          dilemma: form.dilemma,
+          payload: form,   // saves the full AnalyzeRequest object
+          result: data,    // saves the full AnalyzeResponse object
+        });
+      }
+
       setAnalysis(data)
     } catch (err) {
       console.error(err)
@@ -111,6 +156,11 @@ export default function Home() {
           <p className="mb-3 text-sm uppercase tracking-[0.25em] text-zinc-400">
             Wellness-Centered Decision Support
           </p>
+          {username && (
+            <p className="mb-2 text-sm text-zinc-300">
+              Welcome back, <span className="text-white font-semibold">{username}</span> 👋
+            </p>
+          )}
 
           <h1 className="text-5xl font-bold tracking-tight md:text-7xl">
             <span className="neon-accent">MindMap</span>
